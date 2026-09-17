@@ -14,11 +14,13 @@ def _has_marker(value: str, markers: tuple[str, ...]) -> bool:
 
 
 _REDIRECT_MARKERS = (
-    ("/oauth", "/authorize", "openid", "oidc"), "OAuth/OIDC-like"
-),
+    (("/oauth", "/authorize", "openid", "oidc"), "OAuth/OIDC-like"),
     (("saml", "samlrequest", "samlresponse"), "SAML-like"),
     (("/sso", "single-sign-on", "single_sign_on"), "SSO-like"),
-    (("login.microsoftonline.com", "accounts.google.com", "okta.com", "auth0.com", "onelogin.com"), "Identity-provider-like"),
+    (
+        ("login.microsoftonline.com", "accounts.google.com", "okta.com", "auth0.com", "onelogin.com"),
+        "Identity-provider-like",
+    ),
 )
 
 
