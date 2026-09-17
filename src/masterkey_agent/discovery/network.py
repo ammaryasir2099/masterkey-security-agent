@@ -16,6 +16,14 @@ _MAX_HTML_BYTES = 512 * 1024
 _MAX_REDIRECTS = 10
 _SENSITIVE_HEADERS = {"set-cookie", "authorization", "proxy-authorization"}
 _URL_HEADERS = {"location", "content-location", "refresh"}
+_CORS_HEADERS = {
+    "access-control-allow-origin",
+    "access-control-allow-credentials",
+    "access-control-allow-methods",
+    "access-control-allow-headers",
+    "access-control-expose-headers",
+    "access-control-max-age",
+}
 
 
 def normalize_url(value: str) -> str:
@@ -97,21 +105,40 @@ def _sanitize_headers(headers) -> dict[str, str]:
             sanitized[name] = "[redacted]"
         elif name in _URL_HEADERS:
             sanitized[name] = _safe_url(value)
+        elif name in _CORS_HEADERS:
+            sanitized[name] = value.strip()
         else:
             sanitized[name] = value
     return sanitized
 
 
-def _read_bounded_body(response, max_bytes: int) -> bytes:
+def _cors_metadata(headers: dict[str, str]) -> dict[str, str | bool]:
+    result: dict[str, str | bool] = {}
+    mapping = {
+        "access-control-allow-origin": "allow_origin",
+        "access-control-allow-methods": "allow_methods",
+        "access-control-allow-headers": "allow_headers",
+        "access-control-expose-headers": "expose_headers",
+        "access-control-max-age": "max_age",
+    }
+    for source, target in mapping.items():
+        if source in headers:
+            result[target] = headers[source]
+    if "access-control-allow-credentials" in headers:
+        result["allow_credentials"] = headers["access-control-allow-credentials"].lower() == "true"
+    return result
+
+
+def _read_bounded_body(response, max_bytes: int) -> tuple[bytes, bool]:
     value = response.headers.get("Content-Length")
     try:
         declared = int(value) if value else None
     except ValueError:
         declared = None
     if declared is not None and declared > max_bytes:
-        return b""
+        return b"", True
     data = response.read(max_bytes + 1)
-    return data if len(data) <= max_bytes else data[:max_bytes]
+    return (data[:max_bytes], True) if len(data) > max_bytes else (data, False)
 
 
 def _safe_cookie_attributes(headers) -> list[dict[str, str | bool]]:
@@ -163,6 +190,7 @@ def inspect_url(
     content_type = None
     public_html = None
     cookie_attributes: list[dict[str, str | bool]] = []
+    response_size_limited = False
 
     try:
         with opener.open(request, timeout=timeout) as response:
@@ -171,8 +199,8 @@ def inspect_url(
             headers = _sanitize_headers(response.headers)
             content_type = headers.get("content-type")
             if content_type and "text/html" in content_type.lower():
-                body = _read_bounded_body(response, max_bytes)
-                if body:
+                body, response_size_limited = _read_bounded_body(response, max_bytes)
+                if body and not response_size_limited:
                     public_html = parse_public_html(body.decode("utf-8", errors="replace"))
     except urllib.error.HTTPError as exc:
         status_code = exc.code
@@ -197,4 +225,6 @@ def inspect_url(
         content_type=content_type,
         public_html=public_html,
         cookie_attributes=cookie_attributes,
+        cors=_cors_metadata(headers),
+        response_size_limited=response_size_limited,
     )

@@ -74,6 +74,8 @@ class NetworkObservation:
     content_type: str | None = None
     public_html: PublicHTML | None = None
     cookie_attributes: list[dict[str, Any]] = field(default_factory=list)
+    cors: dict[str, str | bool] = field(default_factory=dict)
+    response_size_limited: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return _to_dict(self)
