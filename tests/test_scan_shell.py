@@ -44,5 +44,11 @@ def test_scan_report_uses_structured_writer(monkeypatch, tmp_path):
     assert captured["session"].session_id == "s-2"
 
 
+def test_scan_reports_invalid_target_without_exiting_shell():
+    output = dispatch("scan ftp://example.com/", {})
+    assert output.startswith("Scan error:")
+    assert "Unsupported URL scheme" in output
+
+
 def test_help_mentions_scan():
     assert "scan <url>" in dispatch("help", {})
