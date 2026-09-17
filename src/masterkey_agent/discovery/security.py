@@ -64,6 +64,7 @@ class SecurityControlsModule:
         evidence: list[Evidence] = []
         findings: list[Finding] = []
         headers = {key.lower(): value for key, value in observation.headers.items()}
+        controls = {header: header in headers for header in self._HEADER_MAP}
 
         for header, (kind, description) in self._HEADER_MAP.items():
             if header in headers:
@@ -91,7 +92,8 @@ class SecurityControlsModule:
                 )
 
         csp = headers.get("content-security-policy", "")
-        if "frame-ancestors" in csp.lower():
+        frame_ancestors = "frame-ancestors" in csp.lower()
+        if frame_ancestors:
             evidence_id = f"header-csp-frame-ancestors-{len(evidence) + 1}"
             evidence.append(
                 Evidence(
@@ -123,9 +125,9 @@ class SecurityControlsModule:
             True,
             evidence=evidence,
             observations={
-                "security_headers_observed": len(
-                    [e for e in evidence if e.evidence_type.startswith("header.")]
-                ),
+                "controls": controls,
+                "frame_ancestors": frame_ancestors,
+                "security_headers_observed": sum(controls.values()),
                 "cookies_observed": len(observation.cookie_attributes),
             },
             findings=findings,
