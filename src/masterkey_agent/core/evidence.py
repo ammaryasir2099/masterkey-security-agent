@@ -1,3 +1,4 @@
+"""Evidence normalization, redaction, and de-duplication helpers."""
 from __future__ import annotations
 
 import json
@@ -22,7 +23,8 @@ def sanitize_url(value: str) -> str:
     )
 
 
-def _identity(item: Evidence) -> str:
+def evidence_key(item: Evidence) -> str:
+    """Build a deterministic identity for de-duplication."""
     metadata = json.dumps(item.metadata, sort_keys=True, separators=(",", ":"), default=str)
     return "\x1f".join(
         (
@@ -40,7 +42,7 @@ def deduplicate_evidence(items: list[Evidence]) -> list[Evidence]:
     seen: set[str] = set()
     result: list[Evidence] = []
     for item in items:
-        key = _identity(item)
+        key = evidence_key(item)
         if key in seen:
             continue
         seen.add(key)
