@@ -1,8 +1,6 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 
-import pytest
-
 from masterkey_agent.core.target import normalize_target
 from masterkey_agent.discovery.network import inspect_url
 from masterkey_agent.discovery.security import SecurityControlsModule, parse_set_cookie_attributes
