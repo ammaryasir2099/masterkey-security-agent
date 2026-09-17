@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       target_url:
-        description: "Public HTTP(S) URL to assess with the bounded v0.4 scan"
+        description: "Public HTTP(S) URL to assess with the bounded v0.5 safe scan"
         required: true
         default: "https://example.com/"
         type: string
@@ -50,15 +50,14 @@ jobs:
           import ipaddress
           import os
           import socket
-          import sys
 
           from masterkey_agent.core.target import TargetPolicy, normalize_target, validate_target
 
           raw_url = os.environ["TARGET_URL"].strip()
           policy = TargetPolicy(
               timeout_seconds=10.0,
-              max_response_bytes=256 * 1024,
-              max_redirects=0,
+              max_response_bytes=512 * 1024,
+              max_redirects=10,
               allow_http=True,
               allow_https=True,
           )
@@ -75,8 +74,9 @@ jobs:
           except ValueError:
               literal = None
 
-          addresses = {literal} if literal is not None else set()
-          if literal is None:
+          if literal is not None:
+              addresses = {literal}
+          else:
               try:
                   port = target.port or (443 if target.scheme == "https" else 80)
                   infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
@@ -102,59 +102,24 @@ jobs:
           print("Resolved public addresses:")
           for address in sorted(str(address) for address in addresses):
               print(f"  {address}")
-          print("Redirect following: disabled for workflow scan")
+          print("Request method: GET")
+          print("Redirect limit: 10")
+          print("Response limit: 512 KiB")
           PY
 
-      - name: Run bounded v0.4 scan and write report
+      - name: Run bounded v0.5 safe scan
         env:
           TARGET_URL: ${{ inputs.target_url }}
         run: |
           mkdir -p reports
-          python - <<'PY'
-          import json
-          import os
+          python -m masterkey_agent scan "$TARGET_URL" --profile safe --output reports/master-security-agent-scan.json --format json
+          python -m masterkey_agent scan "$TARGET_URL" --profile safe --output reports/master-security-agent-scan.md --format markdown
 
-          from masterkey_agent.core.engine import ScanEngine, build_default_registry
-          from masterkey_agent.core.target import TargetPolicy
-          from masterkey_agent.report import write_scan_report
-
-          target_url = os.environ["TARGET_URL"]
-          policy = TargetPolicy(
-              timeout_seconds=10.0,
-              max_response_bytes=256 * 1024,
-              max_redirects=0,
-              allow_http=True,
-              allow_https=True,
-          )
-
-          session = ScanEngine(
-              build_default_registry(),
-              policy=policy,
-          ).scan(target_url)
-
-          report_path = "reports/master-security-agent-scan.json"
-          write_scan_report(report_path, session)
-
-          summary = {
-              "session_id": session.session_id,
-              "target": session.target["url"],
-              "modules": len(session.modules),
-              "evidence": len(session.evidence),
-              "findings": len(session.findings),
-              "errors": len(session.errors),
-              "report": report_path,
-          }
-          print(json.dumps(summary, indent=2, sort_keys=True))
-
-          if session.errors:
-              raise SystemExit("Scan completed with errors; see the uploaded JSON report")
-          PY
-
-      - name: Upload scan report
+      - name: Upload scan reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: master-security-agent-scan-${{ github.run_id }}
-          path: reports/master-security-agent-scan.json
+          path: reports/*
           if-no-files-found: error
           retention-days: 7
