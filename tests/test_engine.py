@@ -29,6 +29,7 @@ def test_default_registry_has_expected_modules():
     assert [module.name for module in registry.modules()] == [
         "auth_surface",
         "security_controls",
+        "tls_intelligence",
     ]
 
 
@@ -90,6 +91,7 @@ def test_engine_records_network_exception_and_continues(monkeypatch):
     assert "network exploded" in (network.error or "")
     assert any(item.module == "auth_surface" and item.success for item in session.modules)
     assert any(item.module == "security_controls" and item.success for item in session.modules)
+    assert any(item.module == "tls_intelligence" and item.success for item in session.modules)
     assert any("network exploded" in item["message"] for item in session.errors)
 
 
@@ -146,6 +148,7 @@ def test_full_scan_runs_builtin_modules_against_local_server():
     assert any(item.module == "network_discovery" and item.success for item in session.modules)
     assert any(item.module == "auth_surface" and item.success for item in session.modules)
     assert any(item.module == "security_controls" and item.success for item in session.modules)
+    assert any(item.module == "tls_intelligence" and item.success for item in session.modules)
     assert any(item.evidence_type == "auth.password_field" for item in session.evidence)
     assert any(item.evidence_type == "cookie.httponly_attribute" for item in session.evidence)
     assert "SUPERSECRET" not in str(session.to_dict())
