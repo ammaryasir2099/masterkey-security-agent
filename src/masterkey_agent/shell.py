@@ -60,7 +60,29 @@ def _format_scan(session) -> str:
     return "\n".join(lines)
 
 
+def _parse_report_path(command: str) -> str | None:
+    prefix = command.lstrip()[:6].lower()
+    if prefix != "report":
+        return None
+    remainder = command.lstrip()[6:]
+    if not remainder or not remainder[0].isspace():
+        return None
+    path = remainder.strip()
+    if len(path) >= 2 and path[0] == path[-1] and path[0] in {"'", '"'}:
+        path = path[1:-1]
+    return path or None
+
+
 def dispatch(command: str, state: dict[str, Any]) -> str:
+    report_path = _parse_report_path(command)
+    if report_path is not None:
+        session = state.get("scan_session")
+        if session is not None:
+            write_scan_report(report_path, session)
+        else:
+            write_report(report_path, state)
+        return f"Report written: {report_path}"
+
     parts = shlex.split(command)
     if not parts:
         return ""
@@ -82,14 +104,6 @@ def dispatch(command: str, state: dict[str, Any]) -> str:
             f"Hostname: {info.hostname}\n"
             f"Browsers detected: {len(browsers)}"
         )
-
-    if action == "report" and len(parts) == 2:
-        session = state.get("scan_session")
-        if session is not None:
-            write_scan_report(parts[1], session)
-        else:
-            write_report(parts[1], state)
-        return f"Report written: {parts[1]}"
 
     if action == "scan" and len(parts) == 2:
         try:
