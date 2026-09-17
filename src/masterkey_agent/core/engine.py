@@ -1,4 +1,4 @@
-"""Orchestration for the v0.4 observation-only assessment engine."""
+"""Orchestration for the v0.5 observation-only assessment engine."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -11,6 +11,7 @@ from masterkey_agent.discovery.security import SecurityControlsModule
 from masterkey_agent.discovery.tls import TLSIntelligenceModule
 from masterkey_agent.models import NetworkObservation
 
+from .evidence import deduplicate_evidence, evidence_key
 from .models import Evidence, Finding, ModuleResult, ScanSession
 from .registry import ModuleRegistry
 from .target import Target, TargetPolicy, normalize_target, validate_target
@@ -29,7 +30,7 @@ class ScanEngine:
         self,
         registry: ModuleRegistry,
         policy: TargetPolicy | None = None,
-        agent_version: str = "0.4.0",
+        agent_version: str = "0.5.0",
     ) -> None:
         self.registry = registry
         self.policy = policy or TargetPolicy()
@@ -81,7 +82,7 @@ class ScanEngine:
         for module in self.registry.modules():
             try:
                 result = module.run(target, context)
-            except Exception as exc:  # defensive isolation for third-party/future modules
+            except Exception as exc:
                 result = ModuleResult(module.name, False, error=str(exc))
                 session.errors.append(
                     {
@@ -103,8 +104,26 @@ class ScanEngine:
                     }
                 )
 
+        self._deduplicate_session_evidence(session)
         session.ended_at = datetime.now(timezone.utc)
         return session
+
+    @staticmethod
+    def _deduplicate_session_evidence(session: ScanSession) -> None:
+        original = list(session.evidence)
+        unique = deduplicate_evidence(original)
+        aliases: dict[str, str] = {}
+        first_by_key: dict[str, str] = {}
+        for item in original:
+            key = evidence_key(item)
+            first_by_key.setdefault(key, item.id)
+            aliases[item.id] = first_by_key[key]
+
+        session.evidence = unique
+        for finding in session.findings:
+            finding.evidence_refs = [
+                aliases.get(ref, ref) for ref in finding.evidence_refs
+            ]
 
     @staticmethod
     def _record_network_result(
