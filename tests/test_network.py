@@ -9,6 +9,13 @@ def test_normalize_url_preserves_http():
     assert normalize_url("http://127.0.0.1:8080/path") == "http://127.0.0.1:8080/path"
 
 
+def test_normalize_url_rejects_embedded_credentials():
+    import pytest
+
+    with pytest.raises(ValueError, match="credentials"):
+        normalize_url("https://alice:secret@example.com/")
+
+
 def test_inspect_url_reports_connection_error(monkeypatch):
     from masterkey_agent.discovery import network
 
