@@ -1,3 +1,6 @@
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 import pytest
 
 from masterkey_agent.core.engine import ScanEngine, build_default_registry
@@ -74,3 +77,62 @@ def test_engine_session_records_target_and_end_time(monkeypatch):
     assert session.target["url"] == "http://127.0.0.1:8000/"
     assert session.started_at is not None
     assert session.ended_at is not None
+
+
+def test_full_scan_runs_builtin_modules_against_local_server():
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/start":
+                self.send_response(302)
+                self.send_header(
+                    "Location",
+                    f"http://127.0.0.1:{server.server_port}/login",
+                )
+                self.end_headers()
+                return
+
+            body = (
+                b"<html><head><title>Sign in</title></head><body>"
+                b"<form method='post' action='/login'>"
+                b"<input name='username' type='text' autocomplete='username' value='do-not-store'>"
+                b"<input name='password' type='password' autocomplete='current-password' value='do-not-store'>"
+                b"</form></body></html>"
+            )
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header(
+                "Set-Cookie",
+                "session=SUPERSECRET; Secure; HttpOnly; SameSite=Strict",
+            )
+            self.send_header("Strict-Transport-Security", "max-age=31536000")
+            self.send_header("Content-Security-Policy", "default-src 'self'")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "strict-origin")
+            self.send_header("Permissions-Policy", "geolocation=()")
+            self.send_header("X-Frame-Options", "DENY")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = HTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        engine = ScanEngine(build_default_registry(), TargetPolicy())
+        session = engine.scan(f"http://127.0.0.1:{server.server_port}/start")
+    finally:
+        server.shutdown()
+        thread.join(timeout=2)
+        server.server_close()
+
+    assert not session.errors
+    assert any(item.module == "network_discovery" and item.success for item in session.modules)
+    assert any(item.module == "auth_surface" and item.success for item in session.modules)
+    assert any(item.module == "security_controls" and item.success for item in session.modules)
+    assert any(item.evidence_type == "auth.password_field" for item in session.evidence)
+    assert any(item.evidence_type == "cookie.httponly_attribute" for item in session.evidence)
+    assert "SUPERSECRET" not in str(session.to_dict())
+    assert "do-not-store" not in str(session.to_dict())
