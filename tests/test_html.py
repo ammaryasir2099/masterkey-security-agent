@@ -26,3 +26,29 @@ def test_parse_public_html_strips_form_action_query_and_fragment():
     assert result.forms[0].action == "https://example.com/login"
     assert "SUPERSECRET" not in str(result.to_dict())
     assert "secret" not in str(result.to_dict())
+
+
+def test_parse_public_html_extracts_safe_page_metadata_and_resource_references():
+    html = '''<html><head>
+    <meta name="generator" content="Example CMS 9">
+    <meta name="robots" content="index,follow">
+    <meta name="description" content="Public landing page">
+    <script src="/assets/app.js?v=SECRET"></script>
+    <link rel="stylesheet" href="/assets/site.css#theme">
+    </head><body>
+    <a href="/login?next=/private#top">Login</a>
+    <a href="https://cdn.example.test/app.js?token=SECRET">Asset</a>
+    </body></html>'''
+
+    result = parse_public_html(html, base_url="https://example.com/home")
+
+    assert result.meta["generator"] == "Example CMS 9"
+    assert result.meta["robots"] == "index,follow"
+    assert "description" not in result.meta
+    assert result.scripts == ["https://example.com/assets/app.js"]
+    assert result.styles == ["https://example.com/assets/site.css"]
+    assert result.links == [
+        "https://example.com/login",
+        "https://cdn.example.test/app.js",
+    ]
+    assert "SECRET" not in str(result.to_dict())
