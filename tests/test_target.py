@@ -30,6 +30,12 @@ def test_validation_rejects_missing_hostname():
         validate_target(target)
 
 
+def test_validation_rejects_embedded_credentials():
+    with pytest.raises(ValueError, match="credentials"):
+        target = normalize_target("https://alice:secret@example.com/")
+        validate_target(target)
+
+
 def test_default_policy_is_bounded():
     policy = TargetPolicy()
     assert policy.timeout_seconds > 0
