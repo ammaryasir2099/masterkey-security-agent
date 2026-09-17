@@ -55,6 +55,10 @@ class HTMLForm:
 class PublicHTML:
     title: str | None = None
     forms: list[HTMLForm] = field(default_factory=list)
+    external_script_count: int = 0
+    external_style_count: int = 0
+    canonical_url: str | None = None
+    security_meta: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return _to_dict(self)

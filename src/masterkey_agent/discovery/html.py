@@ -1,4 +1,4 @@
-"""Bounded parser for public HTML authentication-surface metadata."""
+"""Bounded parser for public HTML metadata used by observation-only analysis."""
 from __future__ import annotations
 
 from html.parser import HTMLParser
@@ -7,11 +7,15 @@ from urllib.parse import urlsplit, urlunsplit
 from masterkey_agent.models import HTMLField, HTMLForm, PublicHTML
 
 
-def _safe_action(value: str) -> str:
-    parsed = urlsplit(value)
+def _safe_reference_url(value: str) -> str:
     if not value:
         return ""
-    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/", "", ""))
+    parsed = urlsplit(value.strip())
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc, parsed.path or "/", "", ""))
+
+
+def _safe_action(value: str) -> str:
+    return _safe_reference_url(value)
 
 
 class _PublicHTMLParser(HTMLParser):
@@ -21,6 +25,10 @@ class _PublicHTMLParser(HTMLParser):
         self.in_title = False
         self.forms: list[HTMLForm] = []
         self._current_form: HTMLForm | None = None
+        self.external_script_count = 0
+        self.external_style_count = 0
+        self.canonical_url: str | None = None
+        self.security_meta: dict[str, str] = {}
 
     def handle_starttag(self, tag, attrs):
         attributes = {name.lower(): value or "" for name, value in attrs}
@@ -41,6 +49,20 @@ class _PublicHTMLParser(HTMLParser):
                     autocomplete=attributes.get("autocomplete") or None,
                 )
             )
+        elif tag == "script" and attributes.get("src"):
+            self.external_script_count += 1
+        elif tag == "link":
+            rel_tokens = {item.lower() for item in attributes.get("rel", "").split()}
+            if "stylesheet" in rel_tokens and attributes.get("href"):
+                self.external_style_count += 1
+            if "canonical" in rel_tokens and self.canonical_url is None:
+                self.canonical_url = _safe_reference_url(attributes.get("href", "")) or None
+        elif tag == "meta":
+            key = (attributes.get("name") or attributes.get("http-equiv") or "").lower().strip()
+            if key in {"referrer", "content-security-policy", "permissions-policy"}:
+                content = " ".join(attributes.get("content", "").split())
+                if content:
+                    self.security_meta[key] = content[:512]
 
     def handle_endtag(self, tag):
         tag = tag.lower()
@@ -58,4 +80,11 @@ def parse_public_html(html: str) -> PublicHTML:
     parser = _PublicHTMLParser()
     parser.feed(html)
     title = " ".join("".join(parser.title_parts).split()) or None
-    return PublicHTML(title=title, forms=parser.forms)
+    return PublicHTML(
+        title=title,
+        forms=parser.forms,
+        external_script_count=parser.external_script_count,
+        external_style_count=parser.external_style_count,
+        canonical_url=parser.canonical_url,
+        security_meta=parser.security_meta,
+    )

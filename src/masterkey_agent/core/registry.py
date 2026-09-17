@@ -27,3 +27,6 @@ class ModuleRegistry:
 
     def modules(self) -> tuple[DiscoveryModule, ...]:
         return tuple(self._modules[name] for name in sorted(self._modules))
+
+    def names(self) -> tuple[str, ...]:
+        return tuple(module.name for module in self.modules())
