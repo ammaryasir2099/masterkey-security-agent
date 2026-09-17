@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from masterkey_agent.shell import dispatch
 
 
@@ -21,6 +23,25 @@ def test_scan_command_stores_session(monkeypatch):
     output = dispatch("scan https://example.com/", state)
     assert "Scan session: s-1" in output
     assert state["scan_session"].session_id == "s-1"
+
+
+def test_scan_report_uses_structured_writer(monkeypatch, tmp_path):
+    class FakeSession:
+        session_id = "s-2"
+        target = {"url": "https://example.com/"}
+
+    captured = {}
+
+    def fake_write(path, session):
+        captured["path"] = Path(path)
+        captured["session"] = session
+
+    monkeypatch.setattr("masterkey_agent.shell.write_scan_report", fake_write)
+    state = {"scan_session": FakeSession()}
+    output = dispatch(f"report {tmp_path / 'scan.json'}", state)
+    assert output.startswith("Report written:")
+    assert captured["path"].name == "scan.json"
+    assert captured["session"].session_id == "s-2"
 
 
 def test_help_mentions_scan():
