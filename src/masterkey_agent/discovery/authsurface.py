@@ -13,6 +13,15 @@ def _has_marker(value: str, markers: tuple[str, ...]) -> bool:
     return any(marker in lower for marker in markers)
 
 
+_REDIRECT_MARKERS = (
+    ("/oauth", "/authorize", "openid", "oidc"), "OAuth/OIDC-like"
+),
+    (("saml", "samlrequest", "samlresponse"), "SAML-like"),
+    (("/sso", "single-sign-on", "single_sign_on"), "SSO-like"),
+    (("login.microsoftonline.com", "accounts.google.com", "okta.com", "auth0.com", "onelogin.com"), "Identity-provider-like"),
+)
+
+
 class AuthSurfaceModule:
     name = "auth_surface"
 
@@ -29,30 +38,21 @@ class AuthSurfaceModule:
             if value not in candidate_protocols:
                 candidate_protocols.append(value)
 
-        redirects = " ".join(observation.redirects)
-        if _has_marker(redirects, ("/oauth", "/authorize", "openid", "oidc")):
-            evidence.append(
-                Evidence(
-                    "auth-oauth-1",
-                    self.name,
-                    "auth.oauth_redirect_marker",
-                    "OAuth/OIDC-like redirect marker observed",
-                    target.url,
-                )
-            )
-            add_protocol("OAuth/OIDC-like")
-
-        if _has_marker(redirects, ("saml", "samlrequest", "samlresponse")):
-            evidence.append(
-                Evidence(
-                    "auth-saml-1",
-                    self.name,
-                    "auth.saml_redirect_marker",
-                    "SAML-like redirect marker observed",
-                    target.url,
-                )
-            )
-            add_protocol("SAML-like")
+        for index, redirect in enumerate(observation.redirects, start=1):
+            for markers, label in _REDIRECT_MARKERS:
+                if _has_marker(redirect, markers):
+                    evidence.append(
+                        Evidence(
+                            f"auth-redirect-marker-{index}",
+                            self.name,
+                            "auth.redirect_marker",
+                            f"{label} redirect marker observed",
+                            target.url,
+                            metadata={"marker_group": label},
+                        )
+                    )
+                    add_protocol(label)
+                    break
 
         challenge = observation.headers.get("www-authenticate", "")
         if challenge:
@@ -94,7 +94,7 @@ class AuthSurfaceModule:
                 )
                 login_action = _has_marker(
                     form.action,
-                    ("/login", "/signin", "/sign-in", "/auth"),
+                    ("/login", "/signin", "/sign-in", "/auth", "/sso"),
                 )
 
                 if has_password:
@@ -131,7 +131,7 @@ class AuthSurfaceModule:
 
         if html and html.title and _has_marker(
             html.title,
-            ("sign in", "signin", "log in", "login"),
+            ("sign in", "signin", "log in", "login", "sso"),
         ):
             evidence.append(
                 Evidence(
@@ -144,7 +144,6 @@ class AuthSurfaceModule:
             )
 
         if evidence:
-            primary = evidence[0]
             findings.append(
                 Finding(
                     id="finding-auth-surface-observed",

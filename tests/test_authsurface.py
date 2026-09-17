@@ -26,10 +26,11 @@ def test_auth_surface_correlates_login_form_and_oauth_redirect():
     )
     result = analyze_auth_surface(observation, target)
     kinds = {item.evidence_type for item in result.evidence}
-    assert "auth.oauth_redirect_marker" in kinds
+    assert "auth.redirect_marker" in kinds
     assert "auth.password_field" in kinds
     assert "auth.login_form" in kinds
     assert "auth.login_title" in kinds
+    assert "OAuth/OIDC-like" in result.observations["candidate_protocols"]
 
 
 def test_auth_surface_recognizes_http_auth_challenge():
@@ -43,6 +44,22 @@ def test_auth_surface_recognizes_http_auth_challenge():
     result = analyze_auth_surface(observation, target)
     assert any(item.evidence_type == "auth.www_authenticate" for item in result.evidence)
     assert result.observations["candidate_protocols"] == ["HTTP Bearer"]
+
+
+def test_auth_surface_recognizes_sso_and_identity_provider_markers():
+    target = normalize_target("https://example.com/")
+    observation = NetworkObservation(
+        url=target.url,
+        scheme="https",
+        host=target.hostname,
+        redirects=["https://login.microsoftonline.com/common/sso"],
+    )
+    result = analyze_auth_surface(observation, target)
+    protocols = result.observations["candidate_protocols"]
+    assert "SSO-like" in protocols
+    assert "Identity-provider-like" in protocols
+    kinds = {item.evidence_type for item in result.evidence}
+    assert "auth.redirect_marker" in kinds
 
 
 def test_auth_surface_never_records_field_values():

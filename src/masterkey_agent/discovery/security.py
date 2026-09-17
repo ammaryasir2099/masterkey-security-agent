@@ -67,15 +67,9 @@ class SecurityControlsModule:
 
         for header, (kind, description) in self._HEADER_MAP.items():
             if header in headers:
-                evidence_id = f"{kind.replace('.', '-')}-{len(evidence) + 1}"
+                evidence_id = f"{kind.replace('.', '-')}-1"
                 evidence.append(
-                    Evidence(
-                        evidence_id,
-                        self.name,
-                        kind,
-                        description,
-                        target.url,
-                    )
+                    Evidence(evidence_id, self.name, kind, description, target.url)
                 )
                 findings.append(
                     Finding(
@@ -90,9 +84,33 @@ class SecurityControlsModule:
                     )
                 )
 
+        if target.scheme == "https" and "strict-transport-security" not in headers:
+            evidence_id = "security-missing-hsts-1"
+            evidence.append(
+                Evidence(
+                    evidence_id,
+                    self.name,
+                    "header.hsts_absent",
+                    "HSTS header not observed on the HTTPS response",
+                    target.url,
+                )
+            )
+            findings.append(
+                Finding(
+                    "finding-security-missing-hsts",
+                    "HSTS header not observed",
+                    "low",
+                    "security_headers",
+                    "The HTTPS response did not expose an HSTS header in the observed response.",
+                    [evidence_id],
+                    "Consider enabling HSTS after confirming that all intended application endpoints are HTTPS-capable.",
+                    "high",
+                )
+            )
+
         csp = headers.get("content-security-policy", "")
         if "frame-ancestors" in csp.lower():
-            evidence_id = f"header-csp-frame-ancestors-{len(evidence) + 1}"
+            evidence_id = "header-csp-frame-ancestors-1"
             evidence.append(
                 Evidence(
                     evidence_id,
@@ -100,6 +118,39 @@ class SecurityControlsModule:
                     "header.csp_frame_ancestors",
                     "CSP frame-ancestors directive observed",
                     target.url,
+                )
+            )
+
+        cors = observation.cors
+        if cors.get("allow_origin") == "*":
+            evidence_id = "security-cors-wildcard-1"
+            allow_credentials = bool(cors.get("allow_credentials", False))
+            severity = "low" if allow_credentials else "info"
+            summary = (
+                "Wildcard CORS origin observed together with credential support."
+                if allow_credentials
+                else "Wildcard CORS origin observed in the response."
+            )
+            evidence.append(
+                Evidence(
+                    evidence_id,
+                    self.name,
+                    "cors.wildcard_origin",
+                    "CORS allows wildcard origin",
+                    target.url,
+                    metadata={"allow_credentials": allow_credentials},
+                )
+            )
+            findings.append(
+                Finding(
+                    "finding-security-cors-wildcard",
+                    "Wildcard CORS origin observed",
+                    severity,
+                    "security_headers",
+                    summary,
+                    [evidence_id],
+                    "Review whether wildcard cross-origin access is required and whether credentialed cross-origin access is appropriate.",
+                    "high",
                 )
             )
 
@@ -127,6 +178,7 @@ class SecurityControlsModule:
                     [e for e in evidence if e.evidence_type.startswith("header.")]
                 ),
                 "cookies_observed": len(observation.cookie_attributes),
+                "cors_observed": bool(cors),
             },
             findings=findings,
         )

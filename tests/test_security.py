@@ -1,8 +1,12 @@
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import threading
 
+import pytest
+
+from masterkey_agent.core.target import normalize_target
 from masterkey_agent.discovery.network import inspect_url
-from masterkey_agent.discovery.security import parse_set_cookie_attributes
+from masterkey_agent.discovery.security import SecurityControlsModule, parse_set_cookie_attributes
+from masterkey_agent.models import NetworkObservation
 
 
 def test_cookie_parser_discards_cookie_value():
@@ -52,3 +56,53 @@ def test_network_cookie_metadata_contains_attributes_not_values():
     assert observation.cookie_attributes[0]["httponly"] is True
     assert observation.cookie_attributes[0]["samesite"] == "Strict"
     assert "SUPERSECRET" not in str(observation.to_dict())
+
+
+def test_missing_hsts_on_https_is_low_hardening_finding():
+    target = normalize_target("https://example.test/")
+    observation = NetworkObservation(
+        url=target.url,
+        scheme="https",
+        host=target.hostname,
+        headers={},
+    )
+    result = SecurityControlsModule().run(target, {"network": observation})
+    finding_ids = {item.id for item in result.findings}
+    assert "finding-security-missing-hsts" in finding_ids
+    finding = next(item for item in result.findings if item.id == "finding-security-missing-hsts")
+    assert finding.severity == "low"
+    assert finding.evidence_refs == ["security-missing-hsts-1"]
+
+
+def test_missing_hsts_is_not_reported_for_http_target():
+    target = normalize_target("http://example.test/")
+    observation = NetworkObservation(url=target.url, scheme="http", host=target.hostname)
+    result = SecurityControlsModule().run(target, {"network": observation})
+    assert "finding-security-missing-hsts" not in {item.id for item in result.findings}
+
+
+def test_cors_wildcard_is_observation_not_exploit_claim():
+    target = normalize_target("https://example.test/")
+    observation = NetworkObservation(
+        url=target.url,
+        scheme="https",
+        host=target.hostname,
+        cors={"allow_origin": "*", "allow_credentials": True},
+    )
+    result = SecurityControlsModule().run(target, {"network": observation})
+    finding = next(item for item in result.findings if item.id == "finding-security-cors-wildcard")
+    assert finding.severity == "low"
+    assert "exploit" not in finding.summary.lower()
+
+
+def test_cors_wildcard_without_credentials_is_info():
+    target = normalize_target("https://example.test/")
+    observation = NetworkObservation(
+        url=target.url,
+        scheme="https",
+        host=target.hostname,
+        cors={"allow_origin": "*"},
+    )
+    result = SecurityControlsModule().run(target, {"network": observation})
+    finding = next(item for item in result.findings if item.id == "finding-security-cors-wildcard")
+    assert finding.severity == "info"
