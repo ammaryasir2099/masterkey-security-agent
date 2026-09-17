@@ -115,7 +115,7 @@ def dispatch(command: str, state: dict[str, Any]) -> str:
 
     if action == "scan" and len(parts) == 2:
         try:
-            engine = ScanEngine(build_default_registry(), agent_version="0.5.0")
+            engine = ScanEngine(build_default_registry())
             session = engine.scan(parts[1])
         except ValueError as exc:
             return f"Scan error: {exc}"
