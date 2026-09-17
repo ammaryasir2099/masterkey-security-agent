@@ -1,7 +1,8 @@
 from datetime import datetime, timezone
 
 from masterkey_agent.core.engine import ScanEngine, build_default_registry
-from masterkey_agent.core.models import NetworkObservation, ScanSession
+from masterkey_agent.core.models import ScanSession
+from masterkey_agent.models import NetworkObservation
 from masterkey_agent.report import write_scan_markdown_report, write_scan_report
 from masterkey_agent.reporting.markdown import render_markdown
 
