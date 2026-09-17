@@ -22,6 +22,7 @@ def test_auth_surface_correlates_login_form_and_oauth_redirect():
                     ],
                 )
             ],
+            links=["https://example.com/login", "https://example.com/help"],
         ),
     )
     result = analyze_auth_surface(observation, target)
@@ -30,6 +31,8 @@ def test_auth_surface_correlates_login_form_and_oauth_redirect():
     assert "auth.password_field" in kinds
     assert "auth.login_form" in kinds
     assert "auth.login_title" in kinds
+    assert "auth.login_link" in kinds
+    assert result.findings[0].confidence == "high"
 
 
 def test_auth_surface_recognizes_http_auth_challenge():
@@ -43,6 +46,7 @@ def test_auth_surface_recognizes_http_auth_challenge():
     result = analyze_auth_surface(observation, target)
     assert any(item.evidence_type == "auth.www_authenticate" for item in result.evidence)
     assert result.observations["candidate_protocols"] == ["HTTP Bearer"]
+    assert result.observations["indicator_sources"] == ["header"]
 
 
 def test_auth_surface_never_records_field_values():

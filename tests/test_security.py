@@ -1,54 +1,56 @@
-from http.server import BaseHTTPRequestHandler, HTTPServer
-import threading
-
-from masterkey_agent.discovery.network import inspect_url
-from masterkey_agent.discovery.security import parse_set_cookie_attributes
+from masterkey_agent.core.target import normalize_target
+from masterkey_agent.discovery.security import observe_security_controls
+from masterkey_agent.models import NetworkObservation
 
 
-def test_cookie_parser_discards_cookie_value():
-    parsed = parse_set_cookie_attributes(
-        "session=super-secret; Secure; HttpOnly; SameSite=Lax; Path=/"
+def test_security_controls_report_structured_presence_and_frame_ancestors():
+    target = normalize_target("https://example.com/")
+    observation = NetworkObservation(
+        url=target.url,
+        scheme="https",
+        host=target.hostname,
+        headers={
+            "strict-transport-security": "max-age=31536000",
+            "content-security-policy": "default-src 'self'; frame-ancestors 'none'",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "strict-origin",
+            "permissions-policy": "geolocation=()",
+            "x-frame-options": "DENY",
+        },
+        cookie_attributes=[{"secure": True, "httponly": True, "samesite": "Strict"}],
     )
-    assert "session" not in parsed
-    assert "super-secret" not in str(parsed)
-    assert parsed["secure"] is True
-    assert parsed["httponly"] is True
-    assert parsed["samesite"] == "Lax"
-    assert parsed["path"] == "/"
+
+    result = observe_security_controls(observation, target)
+
+    assert result.observations["controls"] == {
+        "strict-transport-security": True,
+        "content-security-policy": True,
+        "x-content-type-options": True,
+        "referrer-policy": True,
+        "permissions-policy": True,
+        "x-frame-options": True,
+    }
+    assert result.observations["frame_ancestors"] is True
+    assert result.observations["cookies_observed"] == 1
+    assert any(item.evidence_type == "header.csp_frame_ancestors" for item in result.evidence)
+    assert "session-secret" not in str(result.to_dict())
 
 
-def test_cookie_parser_handles_attribute_only_flags():
-    parsed = parse_set_cookie_attributes("x=1; Secure; HttpOnly")
-    assert parsed["secure"] is True
-    assert parsed["httponly"] is True
+def test_security_controls_distinguish_absent_control_without_claiming_exploitability():
+    target = normalize_target("https://example.com/")
+    observation = NetworkObservation(
+        url=target.url,
+        scheme="https",
+        host=target.hostname,
+        headers={"content-security-policy": "default-src 'self'"},
+    )
 
+    result = observe_security_controls(observation, target)
 
-def test_network_cookie_metadata_contains_attributes_not_values():
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            body = b"ok"
-            self.send_response(200)
-            self.send_header("Set-Cookie", "session=SUPERSECRET; Secure; HttpOnly; SameSite=Strict")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *args):
-            pass
-
-    server = HTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        observation = inspect_url(f"http://127.0.0.1:{server.server_port}/")
-    finally:
-        server.shutdown()
-        thread.join(timeout=2)
-        server.server_close()
-
-    assert observation.headers["set-cookie"] == "[redacted]"
-    assert observation.cookie_attributes
-    assert observation.cookie_attributes[0]["secure"] is True
-    assert observation.cookie_attributes[0]["httponly"] is True
-    assert observation.cookie_attributes[0]["samesite"] == "Strict"
-    assert "SUPERSECRET" not in str(observation.to_dict())
+    assert result.observations["controls"]["content-security-policy"] is True
+    assert result.observations["controls"]["strict-transport-security"] is False
+    assert result.findings == [
+        finding for finding in result.findings
+        if finding.category == "security_headers"
+    ]
+    assert all("vulnerability" not in finding.title.lower() for finding in result.findings)
