@@ -58,6 +58,8 @@ def validate_target(target: Target, policy: TargetPolicy | None = None) -> None:
         raise ValueError("HTTPS targets are disabled by policy")
     if not target.hostname:
         raise ValueError("Target hostname is required")
+    if "@" in target.original_input.split("://", 1)[-1].split("/", 1)[0]:
+        raise ValueError("Target URL must not contain embedded credentials")
     if active.timeout_seconds <= 0:
         raise ValueError("Timeout must be positive")
     if active.max_response_bytes <= 0:
