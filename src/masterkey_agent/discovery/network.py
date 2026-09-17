@@ -31,7 +31,9 @@ def normalize_url(value: str) -> str:
         raise ValueError("URL must include a host")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("URLs with embedded credentials are not supported")
-    return urlunsplit((parsed.scheme.lower(), parsed.netloc, parsed.path or "/", parsed.query, ""))
+    return urlunsplit(
+        (parsed.scheme.lower(), parsed.netloc, parsed.path or "/", parsed.query, "")
+    )
 
 
 def _safe_url(value: str) -> str:
@@ -54,7 +56,14 @@ def _tls_metadata(host: str, port: int, timeout: float) -> dict | None:
             with context.wrap_socket(raw, server_hostname=host) as sock:
                 cert = sock.getpeercert()
                 cipher = sock.cipher()
-                return {"version": sock.version(), "cipher": cipher[0] if cipher else None, "subject": cert.get("subject", []), "issuer": cert.get("issuer", []), "not_before": cert.get("notBefore"), "not_after": cert.get("notAfter")}
+                return {
+                    "version": sock.version(),
+                    "cipher": cipher[0] if cipher else None,
+                    "subject": cert.get("subject", []),
+                    "issuer": cert.get("issuer", []),
+                    "not_before": cert.get("notBefore"),
+                    "not_after": cert.get("notAfter"),
+                }
     except (OSError, ssl.SSLError):
         return None
 
@@ -73,16 +82,23 @@ class _RecordingRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
+def _header_pairs(headers) -> list[tuple[str, str]]:
+    raw_items = getattr(headers, "raw_items", None)
+    if callable(raw_items):
+        return [(str(key), str(value)) for key, value in raw_items()]
+    return [(str(key), str(value)) for key, value in headers.items()]
+
+
 def _sanitize_headers(headers) -> dict[str, str]:
     sanitized: dict[str, str] = {}
-    for key, value in headers.items():
-        name = str(key).lower()
+    for key, value in _header_pairs(headers):
+        name = key.lower()
         if name in _SENSITIVE_HEADERS:
             sanitized[name] = "[redacted]"
         elif name in _URL_HEADERS:
-            sanitized[name] = _safe_url(str(value))
+            sanitized[name] = _safe_url(value)
         else:
-            sanitized[name] = str(value)
+            sanitized[name] = value
     return sanitized
 
 
@@ -99,14 +115,12 @@ def _read_bounded_body(response, max_bytes: int) -> bytes:
 
 
 def _safe_cookie_attributes(headers) -> list[dict[str, str | bool]]:
-    raw_headers = []
     get_all = getattr(headers, "get_all", None)
-    if get_all is not None:
-        raw_headers = get_all("Set-Cookie") or []
+    raw_headers = get_all("Set-Cookie") if callable(get_all) else None
     if not raw_headers:
         combined = headers.get("Set-Cookie")
-        if combined:
-            raw_headers = [combined]
+        raw_headers = [combined] if combined else []
+
     safe: list[dict[str, str | bool]] = []
     for raw in raw_headers:
         parsed = parse_set_cookie_attributes(raw)
@@ -115,25 +129,41 @@ def _safe_cookie_attributes(headers) -> list[dict[str, str | bool]]:
     return safe
 
 
-def inspect_url(url: str, timeout: float = 5.0, *, max_bytes: int = _MAX_HTML_BYTES, max_redirects: int = _MAX_REDIRECTS) -> NetworkObservation:
+def inspect_url(
+    url: str,
+    timeout: float = 5.0,
+    *,
+    max_bytes: int = _MAX_HTML_BYTES,
+    max_redirects: int = _MAX_REDIRECTS,
+) -> NetworkObservation:
     if timeout <= 0:
         raise ValueError("timeout must be positive")
     if max_bytes <= 0:
         raise ValueError("max_bytes must be positive")
     if max_redirects < 0:
         raise ValueError("max_redirects cannot be negative")
+
     normalized = normalize_url(url)
     parts = urlsplit(normalized)
     host = parts.hostname or ""
     handler = _RecordingRedirectHandler(max_redirects)
     opener = urllib.request.build_opener(handler)
-    request = urllib.request.Request(normalized, method="GET", headers={"User-Agent": "MasterSecurityAgent/0.4", "Accept": "text/html, */*"})
+    request = urllib.request.Request(
+        normalized,
+        method="GET",
+        headers={
+            "User-Agent": "MasterSecurityAgent/0.4",
+            "Accept": "text/html, */*",
+        },
+    )
+
     status_code = None
     headers: dict[str, str] = {}
     error = None
     content_type = None
     public_html = None
     cookie_attributes: list[dict[str, str | bool]] = []
+
     try:
         with opener.open(request, timeout=timeout) as response:
             status_code = response.status
@@ -152,5 +182,19 @@ def inspect_url(url: str, timeout: float = 5.0, *, max_bytes: int = _MAX_HTML_BY
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         error = str(exc)
         headers = {"x-masterkey-error": error}
+
     port = parts.port or (443 if parts.scheme == "https" else 80)
-    return NetworkObservation(url=normalized, scheme=parts.scheme, host=host, status_code=status_code, redirects=handler.redirects, resolved_addresses=_resolve_addresses(host), tls=_tls_metadata(host, port, timeout) if parts.scheme == "https" else None, error=error, content_type=content_type, public_html=public_html, cookie_attributes=cookie_attributes)
+    return NetworkObservation(
+        url=normalized,
+        scheme=parts.scheme,
+        host=host,
+        status_code=status_code,
+        redirects=handler.redirects,
+        headers=headers,
+        resolved_addresses=_resolve_addresses(host),
+        tls=_tls_metadata(host, port, timeout) if parts.scheme == "https" else None,
+        error=error,
+        content_type=content_type,
+        public_html=public_html,
+        cookie_attributes=cookie_attributes,
+    )
