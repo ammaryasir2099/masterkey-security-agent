@@ -153,7 +153,7 @@ def inspect_url(
         normalized,
         method="GET",
         headers={
-            "User-Agent": "MasterSecurityAgent/0.4",
+            "User-Agent": "MasterSecurityAgent/0.5",
             "Accept": "text/html, */*",
         },
     )
@@ -174,7 +174,10 @@ def inspect_url(
             if content_type and "text/html" in content_type.lower():
                 body = _read_bounded_body(response, max_bytes)
                 if body:
-                    public_html = parse_public_html(body.decode("utf-8", errors="replace"))
+                    public_html = parse_public_html(
+                        body.decode("utf-8", errors="replace"),
+                        base_url=normalized,
+                    )
     except urllib.error.HTTPError as exc:
         status_code = exc.code
         cookie_attributes = _safe_cookie_attributes(exc.headers)

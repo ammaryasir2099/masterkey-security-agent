@@ -55,6 +55,10 @@ class HTMLForm:
 class PublicHTML:
     title: str | None = None
     forms: list[HTMLForm] = field(default_factory=list)
+    links: list[str] = field(default_factory=list)
+    meta: dict[str, str] = field(default_factory=dict)
+    scripts: list[str] = field(default_factory=list)
+    styles: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         return _to_dict(self)
