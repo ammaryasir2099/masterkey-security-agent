@@ -43,9 +43,10 @@ class AuthSurfaceModule:
         for index, redirect in enumerate(observation.redirects, start=1):
             for markers, label in _REDIRECT_MARKERS:
                 if _has_marker(redirect, markers):
+                    evidence_suffix = label.lower().replace("/", "-").replace(" ", "-")
                     evidence.append(
                         Evidence(
-                            f"auth-redirect-marker-{index}",
+                            f"auth-redirect-marker-{index}-{evidence_suffix}",
                             self.name,
                             "auth.redirect_marker",
                             f"{label} redirect marker observed",
@@ -54,7 +55,6 @@ class AuthSurfaceModule:
                         )
                     )
                     add_protocol(label)
-                    break
 
         challenge = observation.headers.get("www-authenticate", "")
         if challenge:
