@@ -79,6 +79,20 @@ def test_engine_session_records_target_and_end_time(monkeypatch):
     assert session.ended_at is not None
 
 
+def test_engine_records_network_exception_and_continues(monkeypatch):
+    monkeypatch.setattr(
+        "masterkey_agent.core.engine.inspect_url",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("network exploded")),
+    )
+    session = ScanEngine(build_default_registry(), TargetPolicy()).scan("https://example.com/")
+    network = next(item for item in session.modules if item.module == "network_discovery")
+    assert network.success is False
+    assert "network exploded" in (network.error or "")
+    assert any(item.module == "auth_surface" and item.success for item in session.modules)
+    assert any(item.module == "security_controls" and item.success for item in session.modules)
+    assert any("network exploded" in item["message"] for item in session.errors)
+
+
 def test_full_scan_runs_builtin_modules_against_local_server():
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
