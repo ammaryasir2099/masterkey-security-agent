@@ -19,8 +19,8 @@ _HELP = """Commands:
   inspect-auth <url>           Show authentication evidence and confidence.
   inspect-redirects <url>      Show observed public redirect destinations.
   inspect-headers <url>        Show safe response headers.
-  inspect-public-html <url>    Show public HTML title/form metadata only.
-  scan <url>                   Run the modular v0.4 observation-only assessment.
+  inspect-public-html <url>    Show public HTML metadata only.
+  scan <url>                   Run the modular v0.5 observation-only assessment.
   report <path>                Write the current state or latest scan as JSON.
   exit                         Quit.
 """
@@ -43,7 +43,15 @@ def _format_public_html(observation) -> str:
             f"  FORM {index}: method={form.method} "
             f"action={form.action or 'same-document'} fields={','.join(fields)}"
         )
-    return f"Title: {html.title or 'none'}\nForms: {len(html.forms)}\n" + "\n".join(forms)
+    links = len(html.links)
+    return (
+        f"Title: {html.title or 'none'}\n"
+        f"Forms: {len(html.forms)}\n"
+        f"Public links: {links}\n"
+        f"Scripts: {len(html.scripts)}\n"
+        f"Styles: {len(html.styles)}\n"
+        + "\n".join(forms)
+    )
 
 
 def _format_scan(session) -> str:
@@ -107,7 +115,7 @@ def dispatch(command: str, state: dict[str, Any]) -> str:
 
     if action == "scan" and len(parts) == 2:
         try:
-            engine = ScanEngine(build_default_registry())
+            engine = ScanEngine(build_default_registry(), agent_version="0.5.0")
             session = engine.scan(parts[1])
         except ValueError as exc:
             return f"Scan error: {exc}"
@@ -172,7 +180,7 @@ def dispatch(command: str, state: dict[str, Any]) -> str:
 
 
 def main() -> None:
-    print("Master Security Agent 0.4 — discovery mode")
+    print("Master Security Agent 0.5 — discovery mode")
     print("No credentials are collected or submitted. Type 'help' for commands.")
     state: dict[str, Any] = {}
     while True:
