@@ -1,4 +1,4 @@
-"""JSON report output for legacy state and structured scan sessions."""
+"""JSON and Markdown report output for structured scan sessions."""
 from __future__ import annotations
 
 import json
@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from masterkey_agent.core.models import ScanSession
+from masterkey_agent.reporting.markdown import write_scan_markdown_report
 
 
 def write_report(path: str | Path, payload: dict[str, Any]) -> None:
@@ -35,3 +36,6 @@ def write_scan_report(path: str | Path, session: ScanSession) -> None:
         "warnings": data["warnings"],
     }
     write_report(path, payload)
+
+
+__all__ = ["write_report", "write_scan_report", "write_scan_markdown_report"]
