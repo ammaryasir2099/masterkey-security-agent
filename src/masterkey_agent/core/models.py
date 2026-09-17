@@ -16,7 +16,16 @@ def _safe(value: Any) -> Any:
     if isinstance(value, tuple):
         return [_safe(item) for item in value]
     if isinstance(value, dict):
-        return {str(key): _safe(item) for key, item in value.items()}
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            string_key = str(key)
+            if string_key == "target_url" and item:
+                from .evidence import sanitize_url
+
+                result[string_key] = sanitize_url(str(item))
+            else:
+                result[string_key] = _safe(item)
+        return result
     return value
 
 
@@ -30,12 +39,7 @@ class Evidence:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        data = _safe(asdict(self))
-        if data.get("target_url"):
-            from .evidence import sanitize_url
-
-            data["target_url"] = sanitize_url(str(data["target_url"]))
-        return data
+        return _safe(asdict(self))
 
 
 @dataclass(slots=True)
