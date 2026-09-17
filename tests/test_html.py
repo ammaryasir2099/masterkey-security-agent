@@ -52,3 +52,12 @@ def test_parse_public_html_extracts_safe_page_metadata_and_resource_references()
         "https://cdn.example.test/app.js",
     ]
     assert "SECRET" not in str(result.to_dict())
+
+
+def test_parse_public_html_keeps_relative_form_action_relative_with_base_url():
+    result = parse_public_html(
+        '<form method="post" action="/signin?token=SECRET#fragment"></form>',
+        base_url="https://example.com/account",
+    )
+    assert result.forms[0].action == "/signin"
+    assert "SECRET" not in str(result.to_dict())
