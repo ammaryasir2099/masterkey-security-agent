@@ -30,7 +30,12 @@ class Evidence:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return _safe(asdict(self))
+        data = _safe(asdict(self))
+        if data.get("target_url"):
+            from .evidence import sanitize_url
+
+            data["target_url"] = sanitize_url(str(data["target_url"]))
+        return data
 
 
 @dataclass(slots=True)
