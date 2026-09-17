@@ -46,7 +46,7 @@ class HTMLForm:
 @dataclass(slots=True)
 class PublicHTML:
     title: str | None = None
-    forms: list[HTMLForm] = field(default_factory=list)
+    forms: list[HTMLField] = field(default_factory=list)
     def to_dict(self) -> dict[str, Any]: return _to_dict(self)
 
 
@@ -63,6 +63,7 @@ class NetworkObservation:
     error: str | None = None
     content_type: str | None = None
     public_html: PublicHTML | None = None
+    cookie_attributes: list[dict[str, Any]] = field(default_factory=list)
     def to_dict(self) -> dict[str, Any]: return _to_dict(self)
 
 
