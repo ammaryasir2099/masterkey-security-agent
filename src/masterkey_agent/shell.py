@@ -92,8 +92,11 @@ def dispatch(command: str, state: dict[str, Any]) -> str:
         return f"Report written: {parts[1]}"
 
     if action == "scan" and len(parts) == 2:
-        engine = ScanEngine(build_default_registry())
-        session = engine.scan(parts[1])
+        try:
+            engine = ScanEngine(build_default_registry())
+            session = engine.scan(parts[1])
+        except ValueError as exc:
+            return f"Scan error: {exc}"
         state["scan_session"] = session
         return _format_scan(session)
 
