@@ -179,7 +179,7 @@ def inspect_url(
         normalized,
         method="GET",
         headers={
-            "User-Agent": "MasterSecurityAgent/0.4",
+            "User-Agent": "MasterSecurityAgent/0.5",
             "Accept": "text/html, */*",
         },
     )

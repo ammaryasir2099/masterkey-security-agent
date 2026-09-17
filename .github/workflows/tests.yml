@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       target_url:
-        description: "Public HTTP(S) URL to assess with the bounded v0.4 scan"
+        description: "Public HTTP(S) URL to assess with the bounded v0.5 scan"
         required: true
         default: "https://example.com/"
         type: string
@@ -25,6 +25,24 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e ".[test]"
       - run: pytest -q
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install package and tooling
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]" ruff
+      - name: Ruff syntax and undefined-name check
+        run: ruff check src tests --select E9,F --output-format=concise
+      - name: Build wheel
+        run: python -m pip wheel . --no-deps -w dist
+      - name: Validate wheel artifact
+        run: ls -lh dist/*.whl
 
   scan-report:
     if: ${{ github.event_name == 'workflow_dispatch' }}
@@ -50,7 +68,6 @@ jobs:
           import ipaddress
           import os
           import socket
-          import sys
 
           from masterkey_agent.core.target import TargetPolicy, normalize_target, validate_target
 
@@ -61,6 +78,8 @@ jobs:
               max_redirects=0,
               allow_http=True,
               allow_https=True,
+              max_scan_seconds=30.0,
+              max_workers=4,
           )
 
           try:
@@ -99,13 +118,12 @@ jobs:
               )
 
           print(f"Target accepted: {target.url}")
-          print("Resolved public addresses:")
           for address in sorted(str(address) for address in addresses):
               print(f"  {address}")
           print("Redirect following: disabled for workflow scan")
           PY
 
-      - name: Run bounded v0.4 scan and write report
+      - name: Run bounded v0.5 scan and write reports
         env:
           TARGET_URL: ${{ inputs.target_url }}
         run: |
@@ -118,22 +136,20 @@ jobs:
           from masterkey_agent.core.target import TargetPolicy
           from masterkey_agent.report import write_scan_report
 
-          target_url = os.environ["TARGET_URL"]
           policy = TargetPolicy(
               timeout_seconds=10.0,
               max_response_bytes=256 * 1024,
               max_redirects=0,
               allow_http=True,
               allow_https=True,
+              max_scan_seconds=30.0,
+              max_workers=4,
           )
-
-          session = ScanEngine(
-              build_default_registry(),
-              policy=policy,
-          ).scan(target_url)
-
-          report_path = "reports/master-security-agent-scan.json"
-          write_scan_report(report_path, session)
+          session = ScanEngine(build_default_registry(), policy=policy).scan(os.environ["TARGET_URL"])
+          json_path = "reports/master-security-agent-scan.json"
+          markdown_path = "reports/master-security-agent-scan.md"
+          write_scan_report(json_path, session, format="json")
+          write_scan_report(markdown_path, session, format="markdown")
 
           summary = {
               "session_id": session.session_id,
@@ -142,19 +158,18 @@ jobs:
               "evidence": len(session.evidence),
               "findings": len(session.findings),
               "errors": len(session.errors),
-              "report": report_path,
+              "reports": [json_path, markdown_path],
           }
           print(json.dumps(summary, indent=2, sort_keys=True))
-
           if session.errors:
-              raise SystemExit("Scan completed with errors; see the uploaded JSON report")
+              raise SystemExit("Scan completed with errors; see the uploaded reports")
           PY
 
-      - name: Upload scan report
+      - name: Upload scan reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: master-security-agent-scan-${{ github.run_id }}
-          path: reports/master-security-agent-scan.json
+          path: reports/*
           if-no-files-found: error
           retention-days: 7
