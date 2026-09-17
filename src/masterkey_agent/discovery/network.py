@@ -15,6 +15,7 @@ _ALLOWED_SCHEMES = {"http", "https"}
 _MAX_HTML_BYTES = 512 * 1024
 _MAX_REDIRECTS = 10
 _SENSITIVE_HEADERS = {"set-cookie", "authorization", "proxy-authorization"}
+_URL_HEADERS = {"location", "content-location", "refresh"}
 
 
 def normalize_url(value: str) -> str:
@@ -28,7 +29,14 @@ def normalize_url(value: str) -> str:
         raise ValueError("Only http and https URLs are supported")
     if not parsed.netloc:
         raise ValueError("URL must include a host")
-    return urlunsplit((parsed.scheme.lower(), parsed.netloc, parsed.path or "/", parsed.query, ""))
+    return urlunsplit(
+        (parsed.scheme.lower(), parsed.netloc, parsed.path or "/", parsed.query, "")
+    )
+
+
+def _safe_url(value: str) -> str:
+    parsed = urlsplit(value)
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc, parsed.path or "/", "", ""))
 
 
 def _resolve_addresses(host: str) -> list[str]:
@@ -67,17 +75,21 @@ class _RecordingRedirectHandler(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         if len(self.redirects) >= self.max_redirects:
             return None
-        self.redirects.append(newurl)
+        self.redirects.append(_safe_url(newurl))
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def _sanitize_headers(headers) -> dict[str, str]:
-    return {
-        str(key).lower(): (
-            "[redacted]" if str(key).lower() in _SENSITIVE_HEADERS else str(value)
-        )
-        for key, value in headers.items()
-    }
+    sanitized: dict[str, str] = {}
+    for key, value in headers.items():
+        name = str(key).lower()
+        if name in _SENSITIVE_HEADERS:
+            sanitized[name] = "[redacted]"
+        elif name in _URL_HEADERS:
+            sanitized[name] = _safe_url(str(value))
+        else:
+            sanitized[name] = str(value)
+    return sanitized
 
 
 def _read_bounded_body(response, max_bytes: int) -> bytes:
