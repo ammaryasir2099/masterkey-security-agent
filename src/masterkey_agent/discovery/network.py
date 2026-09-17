@@ -31,9 +31,7 @@ def normalize_url(value: str) -> str:
         raise ValueError("URL must include a host")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("URLs with embedded credentials are not supported")
-    return urlunsplit(
-        (parsed.scheme.lower(), parsed.netloc, parsed.path or "/", parsed.query, "")
-    )
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc, parsed.path or "/", parsed.query, ""))
 
 
 def _safe_url(value: str) -> str:
@@ -56,14 +54,7 @@ def _tls_metadata(host: str, port: int, timeout: float) -> dict | None:
             with context.wrap_socket(raw, server_hostname=host) as sock:
                 cert = sock.getpeercert()
                 cipher = sock.cipher()
-                return {
-                    "version": sock.version(),
-                    "cipher": cipher[0] if cipher else None,
-                    "subject": cert.get("subject", []),
-                    "issuer": cert.get("issuer", []),
-                    "not_before": cert.get("notBefore"),
-                    "not_after": cert.get("notAfter"),
-                }
+                return {"version": sock.version(), "cipher": cipher[0] if cipher else None, "subject": cert.get("subject", []), "issuer": cert.get("issuer", []), "not_before": cert.get("notBefore"), "not_after": cert.get("notAfter")}
     except (OSError, ssl.SSLError):
         return None
 
@@ -75,9 +66,10 @@ class _RecordingRedirectHandler(urllib.request.HTTPRedirectHandler):
         self.max_redirects = max_redirects
 
     def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if len(self.redirects) >= self.max_redirects:
+        safe_new_url = _safe_url(newurl)
+        if len(self.redirects) >= self.max_redirects or safe_new_url in self.redirects:
             return None
-        self.redirects.append(_safe_url(newurl))
+        self.redirects.append(safe_new_url)
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
@@ -115,7 +107,6 @@ def _safe_cookie_attributes(headers) -> list[dict[str, str | bool]]:
         combined = headers.get("Set-Cookie")
         if combined:
             raw_headers = [combined]
-
     safe: list[dict[str, str | bool]] = []
     for raw in raw_headers:
         parsed = parse_set_cookie_attributes(raw)
@@ -124,41 +115,25 @@ def _safe_cookie_attributes(headers) -> list[dict[str, str | bool]]:
     return safe
 
 
-def inspect_url(
-    url: str,
-    timeout: float = 5.0,
-    *,
-    max_bytes: int = _MAX_HTML_BYTES,
-    max_redirects: int = _MAX_REDIRECTS,
-) -> NetworkObservation:
+def inspect_url(url: str, timeout: float = 5.0, *, max_bytes: int = _MAX_HTML_BYTES, max_redirects: int = _MAX_REDIRECTS) -> NetworkObservation:
     if timeout <= 0:
         raise ValueError("timeout must be positive")
     if max_bytes <= 0:
         raise ValueError("max_bytes must be positive")
     if max_redirects < 0:
         raise ValueError("max_redirects cannot be negative")
-
     normalized = normalize_url(url)
     parts = urlsplit(normalized)
     host = parts.hostname or ""
     handler = _RecordingRedirectHandler(max_redirects)
     opener = urllib.request.build_opener(handler)
-    request = urllib.request.Request(
-        normalized,
-        method="GET",
-        headers={
-            "User-Agent": "MasterSecurityAgent/0.4",
-            "Accept": "text/html, */*",
-        },
-    )
-
+    request = urllib.request.Request(normalized, method="GET", headers={"User-Agent": "MasterSecurityAgent/0.4", "Accept": "text/html, */*"})
     status_code = None
     headers: dict[str, str] = {}
     error = None
     content_type = None
     public_html = None
     cookie_attributes: list[dict[str, str | bool]] = []
-
     try:
         with opener.open(request, timeout=timeout) as response:
             status_code = response.status
@@ -177,19 +152,5 @@ def inspect_url(
     except (urllib.error.URLError, TimeoutError, OSError) as exc:
         error = str(exc)
         headers = {"x-masterkey-error": error}
-
     port = parts.port or (443 if parts.scheme == "https" else 80)
-    return NetworkObservation(
-        url=normalized,
-        scheme=parts.scheme,
-        host=host,
-        status_code=status_code,
-        redirects=handler.redirects,
-        headers=headers,
-        resolved_addresses=_resolve_addresses(host),
-        tls=_tls_metadata(host, port, timeout) if parts.scheme == "https" else None,
-        error=error,
-        content_type=content_type,
-        public_html=public_html,
-        cookie_attributes=cookie_attributes,
-    )
+    return NetworkObservation(url=normalized, scheme=parts.scheme, host=host, status_code=status_code, redirects=handler.redirects, resolved_addresses=_resolve_addresses(host), tls=_tls_metadata(host, port, timeout) if parts.scheme == "https" else None, error=error, content_type=content_type, public_html=public_html, cookie_attributes=cookie_attributes)
