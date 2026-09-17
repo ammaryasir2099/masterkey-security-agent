@@ -1,13 +1,16 @@
-"""Interactive command shell for the discovery agent."""
+"""Interactive command shell for the discovery and assessment agent."""
 from __future__ import annotations
+
 import shlex
 from typing import Any
+
 from masterkey_agent.authmap.mapper import build_auth_map
+from masterkey_agent.core.engine import ScanEngine, build_default_registry
 from masterkey_agent.discovery.local import collect_system_info, detect_browsers
 from masterkey_agent.discovery.network import inspect_url
-from masterkey_agent.report import write_report
+from masterkey_agent.report import write_report, write_scan_report
 
-_HELP="""Commands:
+_HELP = """Commands:
   help                         Show this help.
   local                        Collect safe local OS/browser metadata.
   inspect <url>                Inspect URL/network metadata without credentials.
@@ -17,42 +20,156 @@ _HELP="""Commands:
   inspect-redirects <url>      Show observed public redirect destinations.
   inspect-headers <url>        Show safe response headers.
   inspect-public-html <url>    Show public HTML title/form metadata only.
-  report <path>                Write the current state as JSON.
+  scan <url>                   Run the modular v0.4 observation-only assessment.
+  report <path>                Write the current state or latest scan as JSON.
   exit                         Quit.
 """
 
-def dispatch(command: str,state: dict[str,Any])->str:
-    parts=shlex.split(command)
-    if not parts:return ""
-    action=parts[0].lower()
-    if action=="help":return _HELP.strip()
-    if action in {"exit","quit"}:return "__EXIT__"
-    if action=="local" and len(parts)==1:
-        info=collect_system_info(); browsers=detect_browsers(); state["local"]=info.to_dict()|{"browsers":[b.to_dict() for b in browsers]}
-        return f"OS: {info.os_name} {info.release}\nHostname: {info.hostname}\nBrowsers detected: {len(browsers)}"
-    if action=="report" and len(parts)==2: write_report(parts[1],state); return f"Report written: {parts[1]}"
-    if len(parts)==2 and action in {"inspect","map","discover","inspect-auth","inspect-redirects","inspect-headers","inspect-public-html"}:
-        observation=inspect_url(parts[1]); state["network"]=observation.to_dict()
-        if action=="inspect": return f"URL: {observation.url}\nStatus: {observation.status_code if observation.status_code is not None else 'unavailable'}\nError: {observation.error or 'none'}\nResolved: {', '.join(observation.resolved_addresses) or 'none'}\nRedirects: {len(observation.redirects)}"
-        if action in {"map","discover"}:
-            m=build_auth_map(observation); state["auth_map"]=m.to_dict(); return f"Transport evidence: {', '.join(m.transport_evidence) or 'none'}\nAuthentication confidence: {m.authentication_confidence}\nAuthentication evidence: {', '.join(m.authentication_evidence) or 'none'}\nSecurity controls: {', '.join(m.security_controls) or 'none'}"
-        if action=="inspect-auth":
-            m=build_auth_map(observation); state["auth_map"]=m.to_dict(); return f"Authentication confidence: {m.authentication_confidence}\nAuthentication evidence: {', '.join(m.authentication_evidence) or 'none'}\nCandidate protocols: {', '.join([p for p in m.protocols if p != 'HTTPS/TLS']) or 'none'}"
-        if action=="inspect-redirects": return "Redirects:\n"+"\n".join(f"  {x}" for x in observation.redirects) if observation.redirects else "Redirects: none"
-        if action=="inspect-headers":
-            lines=[f"{k}: {v}" for k,v in sorted(observation.headers.items())]; return "Headers:\n"+"\n".join(lines) if lines else "Headers: none"
-        html=observation.public_html
-        if html is None:return "Public HTML: none"
-        return f"Title: {html.title or 'none'}\nForms: {len(html.forms)}\n"+"\n".join(f"  FORM {i}: method={f.method} action={f.action or 'same-document'} fields="+",".join(f"{x.name or '<unnamed>'}:{x.type or 'text'}"+(f":autocomplete={x.autocomplete}" if x.autocomplete else "") for x in f.fields) for i,f in enumerate(html.forms,1))
+
+def _format_public_html(observation) -> str:
+    html = observation.public_html
+    if html is None:
+        return "Public HTML: none"
+    forms = []
+    for index, form in enumerate(html.forms, start=1):
+        fields = []
+        for field in form.fields:
+            value = field.name or "<unnamed>"
+            value += f":{field.type or 'text'}"
+            if field.autocomplete:
+                value += f":autocomplete={field.autocomplete}"
+            fields.append(value)
+        forms.append(
+            f"  FORM {index}: method={form.method} "
+            f"action={form.action or 'same-document'} fields={','.join(fields)}"
+        )
+    return f"Title: {html.title or 'none'}\nForms: {len(html.forms)}\n" + "\n".join(forms)
+
+
+def _format_scan(session) -> str:
+    lines = [
+        f"Scan session: {session.session_id}",
+        f"Target: {session.target['url']}",
+        f"Modules: {len(session.modules)}",
+        f"Evidence: {len(session.evidence)}",
+        f"Findings: {len(session.findings)}",
+        f"Errors: {len(session.errors)}",
+    ]
+    for finding in session.findings:
+        lines.append(f"  [{finding.severity.upper()}] {finding.title}")
+    return "\n".join(lines)
+
+
+def dispatch(command: str, state: dict[str, Any]) -> str:
+    parts = shlex.split(command)
+    if not parts:
+        return ""
+
+    action = parts[0].lower()
+    if action == "help":
+        return _HELP.strip()
+    if action in {"exit", "quit"}:
+        return "__EXIT__"
+
+    if action == "local" and len(parts) == 1:
+        info = collect_system_info()
+        browsers = detect_browsers()
+        state["local"] = info.to_dict() | {
+            "browsers": [browser.to_dict() for browser in browsers]
+        }
+        return (
+            f"OS: {info.os_name} {info.release}\n"
+            f"Hostname: {info.hostname}\n"
+            f"Browsers detected: {len(browsers)}"
+        )
+
+    if action == "report" and len(parts) == 2:
+        session = state.get("scan_session")
+        if session is not None:
+            write_scan_report(parts[1], session)
+        else:
+            write_report(parts[1], state)
+        return f"Report written: {parts[1]}"
+
+    if action == "scan" and len(parts) == 2:
+        engine = ScanEngine(build_default_registry())
+        session = engine.scan(parts[1])
+        state["scan_session"] = session
+        return _format_scan(session)
+
+    if len(parts) == 2 and action in {
+        "inspect",
+        "map",
+        "discover",
+        "inspect-auth",
+        "inspect-redirects",
+        "inspect-headers",
+        "inspect-public-html",
+    }:
+        observation = inspect_url(parts[1])
+        state["network"] = observation.to_dict()
+
+        if action == "inspect":
+            return (
+                f"URL: {observation.url}\n"
+                f"Status: {observation.status_code if observation.status_code is not None else 'unavailable'}\n"
+                f"Error: {observation.error or 'none'}\n"
+                f"Resolved: {', '.join(observation.resolved_addresses) or 'none'}\n"
+                f"Redirects: {len(observation.redirects)}"
+            )
+
+        if action in {"map", "discover"}:
+            auth_map = build_auth_map(observation)
+            state["auth_map"] = auth_map.to_dict()
+            return (
+                f"Transport evidence: {', '.join(auth_map.transport_evidence) or 'none'}\n"
+                f"Authentication confidence: {auth_map.authentication_confidence}\n"
+                f"Authentication evidence: {', '.join(auth_map.authentication_evidence) or 'none'}\n"
+                f"Security controls: {', '.join(auth_map.security_controls) or 'none'}"
+            )
+
+        if action == "inspect-auth":
+            auth_map = build_auth_map(observation)
+            state["auth_map"] = auth_map.to_dict()
+            protocols = [item for item in auth_map.protocols if item != "HTTPS/TLS"]
+            return (
+                f"Authentication confidence: {auth_map.authentication_confidence}\n"
+                f"Authentication evidence: {', '.join(auth_map.authentication_evidence) or 'none'}\n"
+                f"Candidate protocols: {', '.join(protocols) or 'none'}"
+            )
+
+        if action == "inspect-redirects":
+            return (
+                "Redirects:\n" + "\n".join(f"  {item}" for item in observation.redirects)
+                if observation.redirects
+                else "Redirects: none"
+            )
+
+        if action == "inspect-headers":
+            lines = [f"{key}: {value}" for key, value in sorted(observation.headers.items())]
+            return "Headers:\n" + "\n".join(lines) if lines else "Headers: none"
+
+        return _format_public_html(observation)
+
     return "Unknown command or arguments. Type 'help'."
 
-def main():
-    print("Master Security Agent 0.3 — discovery mode"); print("No credentials are collected or submitted. Type 'help' for commands."); state={}
-    while True:
-        try: command=input("MK> ")
-        except (EOFError,KeyboardInterrupt): print(); break
-        result=dispatch(command,state)
-        if result=="__EXIT__":break
-        if result:print(result)
 
-if __name__=="__main__":main()
+def main() -> None:
+    print("Master Security Agent 0.4 — discovery mode")
+    print("No credentials are collected or submitted. Type 'help' for commands.")
+    state: dict[str, Any] = {}
+    while True:
+        try:
+            command = input("MK> ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        result = dispatch(command, state)
+        if result == "__EXIT__":
+            break
+        if result:
+            print(result)
+
+
+if __name__ == "__main__":
+    main()
