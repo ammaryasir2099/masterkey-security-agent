@@ -43,3 +43,17 @@ def test_default_policy_is_bounded():
     assert policy.max_redirects <= 10
     assert policy.allow_http is True
     assert policy.allow_https is True
+    assert policy.max_scan_seconds == 30.0
+    assert policy.max_workers == 4
+
+
+def test_target_policy_rejects_invalid_worker_limit():
+    policy = TargetPolicy(max_workers=0)
+    with pytest.raises(ValueError, match="max_workers"):
+        policy.validate()
+
+
+def test_target_policy_rejects_invalid_scan_timeout():
+    policy = TargetPolicy(max_scan_seconds=0)
+    with pytest.raises(ValueError, match="max_scan_seconds"):
+        policy.validate()

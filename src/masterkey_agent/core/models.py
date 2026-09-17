@@ -1,9 +1,11 @@
-"""Serializable models shared by v0.4 orchestration and reporting."""
+"""Serializable models shared by v0.4/v0.5 orchestration and reporting."""
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime
 from typing import Any
+
+SUPPORTED_SEVERITIES = ("info", "low", "medium", "high")
 
 
 def _safe(value: Any) -> Any:
@@ -43,6 +45,13 @@ class Finding:
     evidence_refs: list[str] = field(default_factory=list)
     recommendation: str = ""
     confidence: str = "medium"
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def validate(self) -> None:
+        if self.severity not in SUPPORTED_SEVERITIES:
+            raise ValueError(f"unsupported severity: {self.severity}")
+        if not self.id or not self.title or not self.category:
+            raise ValueError("finding id, title, and category are required")
 
     def to_dict(self) -> dict[str, Any]:
         return _safe(asdict(self))

@@ -12,6 +12,20 @@ class TargetPolicy:
     max_redirects: int = 10
     allow_http: bool = True
     allow_https: bool = True
+    max_scan_seconds: float = 30.0
+    max_workers: int = 4
+
+    def validate(self) -> None:
+        if self.timeout_seconds <= 0:
+            raise ValueError("timeout_seconds must be positive")
+        if self.max_response_bytes <= 0:
+            raise ValueError("max_response_bytes must be positive")
+        if self.max_redirects < 0:
+            raise ValueError("max_redirects cannot be negative")
+        if self.max_scan_seconds <= 0:
+            raise ValueError("max_scan_seconds must be positive")
+        if not 1 <= self.max_workers <= 8:
+            raise ValueError("max_workers must be between 1 and 8")
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +64,7 @@ def normalize_target(value: str) -> Target:
 
 def validate_target(target: Target, policy: TargetPolicy | None = None) -> None:
     active = policy or TargetPolicy()
+    active.validate()
     if target.scheme not in {"http", "https"}:
         raise ValueError(f"Unsupported URL scheme: {target.scheme}")
     if target.scheme == "http" and not active.allow_http:
@@ -60,9 +75,3 @@ def validate_target(target: Target, policy: TargetPolicy | None = None) -> None:
         raise ValueError("Target hostname is required")
     if "@" in target.original_input.split("://", 1)[-1].split("/", 1)[0]:
         raise ValueError("Target URL must not contain embedded credentials")
-    if active.timeout_seconds <= 0:
-        raise ValueError("Timeout must be positive")
-    if active.max_response_bytes <= 0:
-        raise ValueError("Maximum response size must be positive")
-    if active.max_redirects < 0:
-        raise ValueError("Maximum redirects cannot be negative")

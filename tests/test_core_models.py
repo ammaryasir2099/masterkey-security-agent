@@ -1,5 +1,7 @@
 from datetime import datetime, timezone
 
+import pytest
+
 from masterkey_agent.core.models import Evidence, Finding, ModuleResult, ScanSession
 
 
@@ -45,3 +47,21 @@ def test_scan_session_serializes_without_secret_cookie_values():
     assert data["agent_version"] == "0.4.0"
     assert "session_secret" not in str(data).lower()
     assert "cookie-value" not in str(data)
+
+
+def test_finding_rejects_unknown_severity():
+    finding = Finding(
+        id="f-1",
+        title="Example",
+        severity="critical",
+        category="test",
+        summary="Example",
+    )
+    with pytest.raises(ValueError, match="severity"):
+        finding.validate()
+
+
+def test_finding_rejects_missing_required_fields():
+    finding = Finding(id="", title="Example", severity="info", category="test", summary="Example")
+    with pytest.raises(ValueError, match="required"):
+        finding.validate()
