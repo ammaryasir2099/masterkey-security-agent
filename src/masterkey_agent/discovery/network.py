@@ -29,6 +29,8 @@ def normalize_url(value: str) -> str:
         raise ValueError("Only http and https URLs are supported")
     if not parsed.netloc:
         raise ValueError("URL must include a host")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("URLs with embedded credentials are not supported")
     return urlunsplit(
         (parsed.scheme.lower(), parsed.netloc, parsed.path or "/", parsed.query, "")
     )
