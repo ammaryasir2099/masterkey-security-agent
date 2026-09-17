@@ -106,6 +106,12 @@ def _parse_report_path(command: str) -> str | None:
     return path or None
 
 
+def _unquote_token(token: str) -> str:
+    if len(token) >= 2 and token[0] == token[-1] and token[0] in {"'", '"'}:
+        return token[1:-1]
+    return token
+
+
 def _parse_scan_options(parts: list[str]) -> tuple[str, str | None, str | None]:
     if not parts or parts[0].lower() != "scan":
         raise ValueError("not a scan command")
@@ -115,12 +121,12 @@ def _parse_scan_options(parts: list[str]) -> tuple[str, str | None, str | None]:
     output: str | None = None
     index = 0
     while index < len(args):
-        token = args[index]
+        token = _unquote_token(args[index])
         if token.startswith("--"):
             if token in {"--format", "--output"}:
-                if index + 1 >= len(args) or args[index + 1].startswith("--"):
+                if index + 1 >= len(args) or _unquote_token(args[index + 1]).startswith("--"):
                     raise ValueError(f"{token} requires a value")
-                value = args[index + 1]
+                value = _unquote_token(args[index + 1])
                 if token == "--format":
                     report_format = value
                 else:
@@ -154,7 +160,7 @@ def dispatch(command: str, state: dict[str, Any]) -> str:
             write_report(report_path, state)
         return f"Report written: {report_path}"
 
-    parts = shlex.split(command)
+    parts = [_unquote_token(token) for token in shlex.split(command, posix=False)]
     if not parts:
         return ""
 
