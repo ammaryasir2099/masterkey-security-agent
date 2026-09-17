@@ -11,7 +11,7 @@ from masterkey_agent.discovery.security import SecurityControlsModule
 from masterkey_agent.discovery.tls import TLSIntelligenceModule
 from masterkey_agent.models import NetworkObservation
 
-from .evidence import deduplicate_evidence, evidence_key
+from .evidence import deduplicate_evidence, evidence_key, sanitize_url
 from .models import Evidence, Finding, ModuleResult, ScanSession
 from .registry import ModuleRegistry
 from .target import Target, TargetPolicy, normalize_target, validate_target
@@ -45,8 +45,8 @@ class ScanEngine:
             agent_version=self.agent_version,
             started_at=started,
             target={
-                "original_input": target.original_input,
-                "url": target.url,
+                "original_input": sanitize_url(target.original_input),
+                "url": sanitize_url(target.url),
                 "scheme": target.scheme,
                 "hostname": target.hostname,
                 "port": target.port,
