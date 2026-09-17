@@ -12,13 +12,14 @@ _SAFE_META_NAMES = {"generator", "robots", "viewport", "referrer"}
 def _safe_action(value: str, base_url: str | None = None) -> str:
     if not value:
         return ""
-    resolved = urljoin(base_url, value) if base_url else value
-    parsed = urlsplit(resolved)
-    if parsed.scheme and parsed.username is not None:
+    parsed = urlsplit(value)
+    if parsed.username is not None or parsed.password is not None:
         return ""
-    netloc = parsed.hostname or parsed.netloc
-    if parsed.port and parsed.hostname:
-        netloc = f"{parsed.hostname}:{parsed.port}"
+    netloc = parsed.netloc
+    if parsed.hostname:
+        netloc = parsed.hostname
+        if parsed.port:
+            netloc = f"{netloc}:{parsed.port}"
     if parsed.scheme or parsed.netloc:
         return urlunsplit((parsed.scheme.lower(), netloc, parsed.path or "/", "", ""))
     return urlunsplit(("", "", parsed.path or "", "", ""))
@@ -77,7 +78,7 @@ class _PublicHTMLParser(HTMLParser):
             self._add_unique(self.links, _safe_reference(attributes.get("href", ""), self.base_url))
         elif tag == "script":
             self._add_unique(self.scripts, _safe_reference(attributes.get("src", ""), self.base_url))
-        elif tag == "link" and attributes.get("rel", "").lower().split() and "stylesheet" in attributes.get("rel", "").lower().split():
+        elif tag == "link" and "stylesheet" in attributes.get("rel", "").lower().split():
             self._add_unique(self.styles, _safe_reference(attributes.get("href", ""), self.base_url))
         elif tag == "meta":
             key = (attributes.get("name") or attributes.get("property") or "").strip().lower()
