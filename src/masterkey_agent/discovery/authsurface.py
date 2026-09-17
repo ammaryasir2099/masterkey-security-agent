@@ -24,10 +24,15 @@ class AuthSurfaceModule:
         evidence: list[Evidence] = []
         findings: list[Finding] = []
         candidate_protocols: list[str] = []
+        indicator_sources: list[str] = []
 
         def add_protocol(value: str) -> None:
             if value not in candidate_protocols:
                 candidate_protocols.append(value)
+
+        def add_source(value: str) -> None:
+            if value not in indicator_sources:
+                indicator_sources.append(value)
 
         redirects = " ".join(observation.redirects)
         if _has_marker(redirects, ("/oauth", "/authorize", "openid", "oidc")):
@@ -41,6 +46,7 @@ class AuthSurfaceModule:
                 )
             )
             add_protocol("OAuth/OIDC-like")
+            add_source("redirect")
 
         if _has_marker(redirects, ("saml", "samlrequest", "samlresponse")):
             evidence.append(
@@ -53,6 +59,7 @@ class AuthSurfaceModule:
                 )
             )
             add_protocol("SAML-like")
+            add_source("redirect")
 
         challenge = observation.headers.get("www-authenticate", "")
         if challenge:
@@ -77,6 +84,7 @@ class AuthSurfaceModule:
                     {"candidate_schemes": schemes},
                 )
             )
+            add_source("header")
 
         html = observation.public_html
         if html:
@@ -108,6 +116,7 @@ class AuthSurfaceModule:
                         )
                     )
                     add_protocol("Form-based authentication")
+                    add_source("form")
                 if has_identity:
                     evidence.append(
                         Evidence(
@@ -118,6 +127,7 @@ class AuthSurfaceModule:
                             target.url,
                         )
                     )
+                    add_source("form")
                 if login_action:
                     evidence.append(
                         Evidence(
@@ -128,6 +138,26 @@ class AuthSurfaceModule:
                             target.url,
                         )
                     )
+                    add_source("form")
+
+            auth_links = [
+                link
+                for link in html.links
+                if _has_marker(link, ("/login", "/signin", "/sign-in", "/auth", "/oauth/authorize"))
+            ]
+            if auth_links:
+                evidence.append(
+                    Evidence(
+                        "auth-link-1",
+                        self.name,
+                        "auth.login_link",
+                        "Public HTML contains an authentication-oriented link",
+                        target.url,
+                        {"count": len(auth_links)},
+                    )
+                )
+                add_protocol("Authentication link surface")
+                add_source("link")
 
         if html and html.title and _has_marker(
             html.title,
@@ -142,9 +172,9 @@ class AuthSurfaceModule:
                     target.url,
                 )
             )
+            add_source("title")
 
         if evidence:
-            primary = evidence[0]
             findings.append(
                 Finding(
                     id="finding-auth-surface-observed",
@@ -154,7 +184,7 @@ class AuthSurfaceModule:
                     summary="Public response metadata contains authentication-related indicators.",
                     evidence_refs=[item.id for item in evidence],
                     recommendation="Review the exposed authentication surface and its controls within the authorized application context.",
-                    confidence="high" if len(evidence) >= 4 else "medium",
+                    confidence="high" if len(indicator_sources) >= 2 else "medium",
                 )
             )
 
@@ -165,6 +195,7 @@ class AuthSurfaceModule:
             observations={
                 "evidence_count": len(evidence),
                 "candidate_protocols": candidate_protocols,
+                "indicator_sources": indicator_sources,
             },
             findings=findings,
         )
