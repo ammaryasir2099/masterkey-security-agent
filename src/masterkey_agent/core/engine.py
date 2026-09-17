@@ -8,6 +8,7 @@ from uuid import uuid4
 from masterkey_agent.discovery.authsurface import AuthSurfaceModule
 from masterkey_agent.discovery.network import inspect_url
 from masterkey_agent.discovery.security import SecurityControlsModule
+from masterkey_agent.discovery.tls import TLSIntelligenceModule
 from masterkey_agent.models import NetworkObservation
 
 from .models import Evidence, Finding, ModuleResult, ScanSession
@@ -19,6 +20,7 @@ def build_default_registry() -> ModuleRegistry:
     registry = ModuleRegistry()
     registry.register(AuthSurfaceModule())
     registry.register(SecurityControlsModule())
+    registry.register(TLSIntelligenceModule())
     return registry
 
 
@@ -80,7 +82,7 @@ class ScanEngine:
             try:
                 result = module.run(target, context)
             except Exception as exc:  # defensive isolation for third-party/future modules
-                result = ModuleResult(module=module.name, success=False, error=str(exc))
+                result = ModuleResult(module.name, False, error=str(exc))
                 session.errors.append(
                     {
                         "module": module.name,
@@ -116,32 +118,32 @@ class ScanEngine:
         if observation.scheme == "https":
             evidence.append(
                 Evidence(
-                    id="network-https-1",
-                    source_module="network_discovery",
-                    evidence_type="transport.https",
-                    value="HTTPS/TLS target observed",
-                    target_url=target.url,
+                    "network-https-1",
+                    "network_discovery",
+                    "transport.https",
+                    "HTTPS/TLS target observed",
+                    target.url,
                 )
             )
         if observation.status_code is not None:
             evidence.append(
                 Evidence(
-                    id="network-status-1",
-                    source_module="network_discovery",
-                    evidence_type="transport.http_status",
-                    value=str(observation.status_code),
-                    target_url=target.url,
+                    "network-status-1",
+                    "network_discovery",
+                    "transport.http_status",
+                    str(observation.status_code),
+                    target.url,
                 )
             )
         if observation.redirects:
             evidence.append(
                 Evidence(
-                    id="network-redirects-1",
-                    source_module="network_discovery",
-                    evidence_type="transport.redirect_chain",
-                    value=f"{len(observation.redirects)} redirect(s) observed",
-                    target_url=target.url,
-                    metadata={"count": len(observation.redirects)},
+                    "network-redirects-1",
+                    "network_discovery",
+                    "transport.redirect_chain",
+                    f"{len(observation.redirects)} redirect(s) observed",
+                    target.url,
+                    {"count": len(observation.redirects)},
                 )
             )
         if observation.error:
@@ -154,8 +156,8 @@ class ScanEngine:
             )
 
         result = ModuleResult(
-            module="network_discovery",
-            success=observation.error is None,
+            "network_discovery",
+            observation.error is None,
             evidence=evidence,
             observations={
                 "status_code": observation.status_code,

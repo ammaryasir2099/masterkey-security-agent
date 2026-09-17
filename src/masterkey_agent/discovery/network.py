@@ -61,6 +61,7 @@ def _tls_metadata(host: str, port: int, timeout: float) -> dict | None:
                     "cipher": cipher[0] if cipher else None,
                     "subject": cert.get("subject", []),
                     "issuer": cert.get("issuer", []),
+                    "subjectAltName": cert.get("subjectAltName", []),
                     "not_before": cert.get("notBefore"),
                     "not_after": cert.get("notAfter"),
                 }
