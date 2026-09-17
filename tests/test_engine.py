@@ -1,3 +1,4 @@
+import time
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -6,7 +7,7 @@ import pytest
 from masterkey_agent.core.engine import ScanEngine, build_default_registry
 from masterkey_agent.core.models import ModuleResult
 from masterkey_agent.core.registry import ModuleRegistry
-from masterkey_agent.core.target import TargetPolicy
+from masterkey_agent.core.target import TargetPolicy, normalize_target
 from masterkey_agent.models import NetworkObservation
 
 
@@ -29,6 +30,7 @@ def test_default_registry_has_expected_modules():
     assert [module.name for module in registry.modules()] == [
         "auth_surface",
         "security_controls",
+        "web_metadata",
     ]
 
 
@@ -90,6 +92,7 @@ def test_engine_records_network_exception_and_continues(monkeypatch):
     assert "network exploded" in (network.error or "")
     assert any(item.module == "auth_surface" and item.success for item in session.modules)
     assert any(item.module == "security_controls" and item.success for item in session.modules)
+    assert any(item.module == "web_metadata" and item.success for item in session.modules)
     assert any("network exploded" in item["message"] for item in session.errors)
 
 
@@ -106,7 +109,10 @@ def test_full_scan_runs_builtin_modules_against_local_server():
                 return
 
             body = (
-                b"<html><head><title>Sign in</title></head><body>"
+                b"<html><head><title>Sign in</title>"
+                b"<link rel='canonical' href='/login?secret=hidden'></head><body>"
+                b"<script src='/app.js'></script>"
+                b"<link rel='stylesheet' href='/app.css'>"
                 b"<form method='post' action='/login'>"
                 b"<input name='username' type='text' autocomplete='username' value='do-not-store'>"
                 b"<input name='password' type='password' autocomplete='current-password' value='do-not-store'>"
@@ -146,7 +152,56 @@ def test_full_scan_runs_builtin_modules_against_local_server():
     assert any(item.module == "network_discovery" and item.success for item in session.modules)
     assert any(item.module == "auth_surface" and item.success for item in session.modules)
     assert any(item.module == "security_controls" and item.success for item in session.modules)
+    assert any(item.module == "web_metadata" and item.success for item in session.modules)
     assert any(item.evidence_type == "auth.password_field" for item in session.evidence)
     assert any(item.evidence_type == "cookie.httponly_attribute" for item in session.evidence)
     assert "SUPERSECRET" not in str(session.to_dict())
     assert "do-not-store" not in str(session.to_dict())
+
+
+class SlowModule:
+    name = "slow"
+
+    def __init__(self, delay=0.05):
+        self.delay = delay
+
+    def run(self, target, context):
+        time.sleep(self.delay)
+        return ModuleResult(self.name, True)
+
+
+class FastModule:
+    name = "fast"
+
+    def run(self, target, context):
+        return ModuleResult(self.name, True)
+
+
+def test_module_results_follow_registry_order_despite_completion_order():
+    registry = ModuleRegistry()
+    registry.register(SlowModule())
+    registry.register(FastModule())
+    policy = TargetPolicy(max_workers=2)
+    engine = ScanEngine(registry, policy=policy)
+    target = normalize_target("https://example.test/")
+    observation = NetworkObservation(target.url, target.scheme, target.hostname)
+    results = engine._run_modules(target, {"network": observation}, registry.modules(), policy)
+    assert [item.module for item in results] == [module.name for module in registry.modules()]
+
+
+def test_one_slow_module_hits_scan_budget_without_aborting_other_result():
+    registry = ModuleRegistry()
+    registry.register(SlowModule(delay=0.05))
+    policy = TargetPolicy(max_scan_seconds=0.01, max_workers=1)
+    engine = ScanEngine(registry, policy=policy)
+    target = normalize_target("http://example.test/")
+    observation = NetworkObservation(target.url, target.scheme, target.hostname)
+    results = engine._run_modules(
+        target,
+        {"network": observation},
+        registry.modules(),
+        policy,
+        deadline=time.monotonic() + 0.01,
+    )
+    assert results[0].success is False
+    assert "time budget" in (results[0].error or "")
