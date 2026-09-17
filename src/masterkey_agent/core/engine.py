@@ -58,12 +58,21 @@ class ScanEngine:
             },
         )
 
-        observation = inspect_url(
-            target.url,
-            timeout=self.policy.timeout_seconds,
-            max_bytes=self.policy.max_response_bytes,
-            max_redirects=self.policy.max_redirects,
-        )
+        try:
+            observation = inspect_url(
+                target.url,
+                timeout=self.policy.timeout_seconds,
+                max_bytes=self.policy.max_response_bytes,
+                max_redirects=self.policy.max_redirects,
+            )
+        except Exception as exc:
+            observation = NetworkObservation(
+                url=target.url,
+                scheme=target.scheme,
+                host=target.hostname,
+                error=str(exc),
+            )
+
         self._record_network_result(session, target, observation)
 
         context: dict[str, Any] = {"network": observation}
@@ -122,6 +131,17 @@ class ScanEngine:
                     evidence_type="transport.http_status",
                     value=str(observation.status_code),
                     target_url=target.url,
+                )
+            )
+        if observation.redirects:
+            evidence.append(
+                Evidence(
+                    id="network-redirects-1",
+                    source_module="network_discovery",
+                    evidence_type="transport.redirect_chain",
+                    value=f"{len(observation.redirects)} redirect(s) observed",
+                    target_url=target.url,
+                    metadata={"count": len(observation.redirects)},
                 )
             )
         if observation.error:
