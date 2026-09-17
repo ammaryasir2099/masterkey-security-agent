@@ -16,7 +16,9 @@ class SystemInfo:
     platform: str
     release: str
     hostname: str
-    def to_dict(self) -> dict[str, Any]: return _to_dict(self)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _to_dict(self)
 
 
 @dataclass(slots=True)
@@ -24,7 +26,9 @@ class BrowserInfo:
     name: str
     executable: str
     version: str | None = None
-    def to_dict(self) -> dict[str, Any]: return _to_dict(self)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _to_dict(self)
 
 
 @dataclass(slots=True)
@@ -32,7 +36,9 @@ class HTMLField:
     name: str | None = None
     type: str | None = None
     autocomplete: str | None = None
-    def to_dict(self) -> dict[str, Any]: return _to_dict(self)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _to_dict(self)
 
 
 @dataclass(slots=True)
@@ -40,14 +46,22 @@ class HTMLForm:
     method: str = "GET"
     action: str = ""
     fields: list[HTMLField] = field(default_factory=list)
-    def to_dict(self) -> dict[str, Any]: return _to_dict(self)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _to_dict(self)
 
 
 @dataclass(slots=True)
 class PublicHTML:
     title: str | None = None
     forms: list[HTMLForm] = field(default_factory=list)
-    def to_dict(self) -> dict[str, Any]: return _to_dict(self)
+    external_script_count: int = 0
+    external_style_count: int = 0
+    canonical_url: str | None = None
+    security_meta: dict[str, str] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _to_dict(self)
 
 
 @dataclass(slots=True)
@@ -63,7 +77,12 @@ class NetworkObservation:
     error: str | None = None
     content_type: str | None = None
     public_html: PublicHTML | None = None
-    def to_dict(self) -> dict[str, Any]: return _to_dict(self)
+    cookie_attributes: list[dict[str, Any]] = field(default_factory=list)
+    cors: dict[str, str | bool] = field(default_factory=dict)
+    response_size_limited: bool = False
+
+    def to_dict(self) -> dict[str, Any]:
+        return _to_dict(self)
 
 
 @dataclass(slots=True)
@@ -76,4 +95,6 @@ class AuthMap:
     authentication_evidence: list[str] = field(default_factory=list)
     security_controls: list[str] = field(default_factory=list)
     authentication_confidence: str = "low"
-    def to_dict(self) -> dict[str, Any]: return _to_dict(self)
+
+    def to_dict(self) -> dict[str, Any]:
+        return _to_dict(self)

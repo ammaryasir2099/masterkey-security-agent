@@ -1,3 +1,3 @@
-"""Master Security Agent discovery toolkit."""
+"""Master Security Agent discovery and assessment toolkit."""
 
-__version__ = "0.3.0"
+__version__ = "0.5.0"
